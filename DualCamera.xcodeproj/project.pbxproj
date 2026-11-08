@@ -1,0 +1,131 @@
+// !$*UTF8*$!
+{
+    archiveVersion = 1;
+    classes = {};
+    objectVersion = 56;
+    objects = {
+        DC0000000000000000000001 = {
+            isa = PBXProject;
+            attributes = {
+                LastUpgradeCheck = 2600;
+                TargetAttributes = { DC0000000000000000000002 = { CreatedOnToolsVersion = 26.0; }; };
+            };
+            buildConfigurationList = DC0000000000000000000003;
+            compatibilityVersion = "Xcode 14.0";
+            developmentRegion = ja;
+            hasScannedForEncodings = 0;
+            knownRegions = (ja, en, Base);
+            mainGroup = DC0000000000000000000004;
+            productRefGroup = DC0000000000000000000005;
+            projectDirPath = "";
+            projectRoot = "";
+            targets = (DC0000000000000000000002);
+        };
+        DC0000000000000000000002 = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = DC0000000000000000000006;
+            buildPhases = (DC0000000000000000000007, DC0000000000000000000008, DC0000000000000000000009);
+            buildRules = ();
+            dependencies = ();
+            name = DualCamera;
+            productName = DualCamera;
+            productReference = DC000000000000000000000A;
+            productType = "com.apple.product-type.application";
+        };
+        DC0000000000000000000003 = {
+            isa = XCConfigurationList;
+            buildConfigurations = (DC0000000000000000000012, DC0000000000000000000013);
+            defaultConfigurationIsVisible = 0;
+            defaultConfigurationName = Release;
+        };
+        DC0000000000000000000004 = {
+            isa = PBXGroup;
+            children = (DC000000000000000000000B, DC0000000000000000000005);
+            sourceTree = "<group>";
+        };
+        DC0000000000000000000005 = {
+            isa = PBXGroup;
+            children = (DC000000000000000000000A);
+            name = Products;
+            sourceTree = "<group>";
+        };
+        DC0000000000000000000006 = {
+            isa = XCConfigurationList;
+            buildConfigurations = (DC0000000000000000000014, DC0000000000000000000015);
+            defaultConfigurationIsVisible = 0;
+            defaultConfigurationName = Release;
+        };
+        DC0000000000000000000007 = {
+            isa = PBXSourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = (DC000000000000000000000F, DC0000000000000000000010, DC0000000000000000000011);
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+        DC0000000000000000000008 = {
+            isa = PBXFrameworksBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+        DC0000000000000000000009 = {
+            isa = PBXResourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            runOnlyForDeploymentPostprocessing = 0;
+        };
+        DC000000000000000000000A = {
+            isa = PBXFileReference;
+            explicitFileType = wrapper.application;
+            includeInIndex = 0;
+            path = DualCamera.app;
+            sourceTree = BUILT_PRODUCTS_DIR;
+        };
+        DC000000000000000000000B = {
+            isa = PBXGroup;
+            children = (DC000000000000000000000C, DC000000000000000000000D, DC000000000000000000000E, DC0000000000000000000016, DC0000000000000000000017);
+            path = DualCamera;
+            sourceTree = "<group>";
+        };
+        DC000000000000000000000C = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DualCameraApp.swift; sourceTree = "<group>"; };
+        DC000000000000000000000D = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DualCameraView.swift; sourceTree = "<group>"; };
+        DC000000000000000000000E = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DualCapture.swift; sourceTree = "<group>"; };
+        DC000000000000000000000F = { isa = PBXBuildFile; fileRef = DC000000000000000000000C; };
+        DC0000000000000000000010 = { isa = PBXBuildFile; fileRef = DC000000000000000000000D; };
+        DC0000000000000000000011 = { isa = PBXBuildFile; fileRef = DC000000000000000000000E; };
+        DC0000000000000000000012 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+                SDKROOT = iphoneos;
+                SWIFT_VERSION = 5.0;
+                SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+            };
+            name = Debug;
+        };
+        DC0000000000000000000013 = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                IPHONEOS_DEPLOYMENT_TARGET = 16.4;
+                SDKROOT = iphoneos;
+                SWIFT_VERSION = 5.0;
+                SWIFT_COMPILATION_MODE = wholemodule;
+            };
+            name = Release;
+        };
+        DC0000000000000000000014 = {
+            isa = XCBuildConfiguration;
+            baseConfigurationReference = DC0000000000000000000016;
+            buildSettings = {};
+            name = Debug;
+        };
+        DC0000000000000000000015 = {
+            isa = XCBuildConfiguration;
+            baseConfigurationReference = DC0000000000000000000016;
+            buildSettings = {};
+            name = Release;
+        };
+        DC0000000000000000000016 = { isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = App.xcconfig; sourceTree = "<group>"; };
+        DC0000000000000000000017 = { isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+    };
+    rootObject = DC0000000000000000000001;
+}

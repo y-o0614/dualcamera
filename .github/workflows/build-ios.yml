@@ -1,0 +1,48 @@
+name: Build iPhone IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Compile for an iPhone
+        run: |
+          xcodebuild -version
+          xcodebuild \
+            -project DualCamera.xcodeproj \
+            -scheme DualCamera \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/dual-camera-build" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY='' build
+
+      - name: Verify and package the app
+        run: |
+          app="$RUNNER_TEMP/dual-camera-build/Build/Products/Release-iphoneos/DualCamera.app"
+          test -x "$app/DualCamera"
+          for key in NSCameraUsageDescription UIFileSharingEnabled LSSupportsOpeningDocumentsInPlace; do
+            /usr/libexec/PlistBuddy -c "Print :$key" "$app/Info.plist"
+          done
+          mkdir -p "$RUNNER_TEMP/dual-camera-package/Payload"
+          ditto "$app" "$RUNNER_TEMP/dual-camera-package/Payload/DualCamera.app"
+          cd "$RUNNER_TEMP/dual-camera-package"
+          ditto -c -k --keepParent Payload "$GITHUB_WORKSPACE/DualCamera.ipa"
+          unzip -tq "$GITHUB_WORKSPACE/DualCamera.ipa"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: DualCamera-unsigned
+          path: DualCamera.ipa
+          if-no-files-found: error
+          retention-days: 7
