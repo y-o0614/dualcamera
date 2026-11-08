@@ -208,7 +208,7 @@ final class DualCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate 
             if connection.isVideoOrientationSupported { connection.videoOrientation = .portrait }
             if connection.isVideoMirroringSupported {
                 connection.automaticallyAdjustsVideoMirroring = false
-                connection.isVideoMirrored = false
+                connection.isVideoMirrored = device.position == .front
             }
         }
     }
