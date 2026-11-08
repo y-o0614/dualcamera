@@ -15,9 +15,13 @@ struct DualCameraApp: App {
 }
 
 private struct CameraScreen: UIViewRepresentable {
+    @Environment(\.scenePhase) private var scenePhase
+
     func makeUIView(context: Context) -> DualCameraView {
         DualCameraView(frame: .zero)
     }
 
-    func updateUIView(_ uiView: DualCameraView, context: Context) {}
+    func updateUIView(_ uiView: DualCameraView, context: Context) {
+        uiView.setSceneActive(scenePhase == .active)
+    }
 }

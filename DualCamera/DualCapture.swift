@@ -22,6 +22,7 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
     private let maximumSkewMs = 50.0
     private var synchronizer: AVCaptureDataOutputSynchronizer?
     private var requestedRunning = false
+    private var firstPairCheck: UUID?
     private var pendingShot: UUID?
 
     override init() {
@@ -50,6 +51,7 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
             if running {
                 self.startIfNeeded()
             } else {
+                self.firstPairCheck = nil
                 self.pendingShot = nil
                 if self.session.isRunning { self.session.stopRunning() }
             }
@@ -59,7 +61,8 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
     func takePair() {
         queue.async {
             guard self.requestedRunning, self.session.isRunning,
-                  !self.session.isInterrupted, self.pendingShot == nil else { return }
+                  !self.session.isInterrupted, self.firstPairCheck == nil,
+                  self.pendingShot == nil else { return }
             let shot = UUID()
             self.pendingShot = shot
             self.onStatus?("時刻が近い前後のフレームを取得しています…", false)
@@ -75,16 +78,27 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
 
     private func startIfNeeded() {
         guard requestedRunning, !session.isRunning, !session.isInterrupted else { return }
+        onStatus?("前後カメラを起動しています…", false)
         do {
             if synchronizer == nil { try configureSession() }
             session.startRunning()
             if session.isRunning {
-                onStatus?("撮影できます。画像は「ファイル」の「このiPhone内」に保存されます。", true)
+                checkFirstPair()
             } else {
                 onStatus?("カメラを開始できませんでした。アプリを開き直してください。", false)
             }
         } catch {
             onStatus?(error.localizedDescription, false)
+        }
+    }
+
+    private func checkFirstPair() {
+        let check = UUID()
+        firstPairCheck = check
+        onStatus?("前後カメラの最初のフレームを待っています…", false)
+        queue.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self, self.firstPairCheck == check else { return }
+            self.onStatus?("カメラは起動しましたが、前後のフレームを1組取得できていません。", false)
         }
     }
 
@@ -193,10 +207,16 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
 
     func dataOutputSynchronizer(_ synchronizer: AVCaptureDataOutputSynchronizer,
                                 didOutput collection: AVCaptureSynchronizedDataCollection) {
-        guard pendingShot != nil,
+        guard firstPairCheck != nil || pendingShot != nil,
               let front = collection.synchronizedData(for: frontOutput) as? AVCaptureSynchronizedSampleBufferData,
               let rear = collection.synchronizedData(for: rearOutput) as? AVCaptureSynchronizedSampleBufferData,
               !front.sampleBufferWasDropped, !rear.sampleBufferWasDropped else { return }
+
+        if firstPairCheck != nil {
+            firstPairCheck = nil
+            onStatus?("撮影できます。画像は「ファイル」の「このiPhone内」に保存されます。", true)
+        }
+        guard pendingShot != nil else { return }
 
         let frontTime = CMSampleBufferGetPresentationTimeStamp(front.sampleBuffer).seconds
         let rearTime = CMSampleBufferGetPresentationTimeStamp(rear.sampleBuffer).seconds
@@ -255,6 +275,7 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
 
     @objc private func interrupted(_ notification: Notification) {
         queue.async {
+            self.firstPairCheck = nil
             self.pendingShot = nil
             if self.requestedRunning { self.onStatus?("カメラの利用が中断されました。", false) }
         }
@@ -264,7 +285,7 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
         queue.async {
             guard self.requestedRunning else { return }
             if self.session.isRunning {
-                self.onStatus?("撮影できます。", true)
+                self.checkFirstPair()
             } else {
                 self.startIfNeeded()
             }
@@ -274,6 +295,7 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
     @objc private func runtimeError(_ notification: Notification) {
         let message = (notification.userInfo?[AVCaptureSessionErrorKey] as? NSError)?.localizedDescription
         queue.async {
+            self.firstPairCheck = nil
             self.pendingShot = nil
             guard self.requestedRunning else { return }
             self.onStatus?(message ?? "カメラでエラーが発生しました。", false)
