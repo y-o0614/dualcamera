@@ -8,7 +8,19 @@ private struct CaptureProblem: LocalizedError {
     var errorDescription: String? { message }
 }
 
-final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
+final class DualCapture: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
+    private struct Frame {
+        let sampleBuffer: CMSampleBuffer
+        let time: Double
+    }
+
+    private struct Shot {
+        let id = UUID()
+        var front: [Frame] = []
+        var rear: [Frame] = []
+        var closestSkewMs: Double?
+    }
+
     let frontPreview: AVCaptureVideoPreviewLayer
     let rearPreview: AVCaptureVideoPreviewLayer
     var onStatus: ((String, Bool) -> Void)?
@@ -20,10 +32,12 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
     private let imageContext = CIContext()
     private let rgb = CGColorSpaceCreateDeviceRGB()
     private let maximumSkewMs = 50.0
-    private var synchronizer: AVCaptureDataOutputSynchronizer?
+    private var isConfigured = false
     private var requestedRunning = false
-    private var firstPairCheck: UUID?
-    private var pendingShot: UUID?
+    private var startupCheck: UUID?
+    private var receivedFront = false
+    private var receivedRear = false
+    private var pendingShot: Shot?
 
     override init() {
         let session = AVCaptureMultiCamSession()
@@ -51,8 +65,7 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
             if running {
                 self.startIfNeeded()
             } else {
-                self.firstPairCheck = nil
-                self.pendingShot = nil
+                self.resetFrameState()
                 if self.session.isRunning { self.session.stopRunning() }
             }
         }
@@ -60,18 +73,22 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
 
     func takePair() {
         queue.async {
-            guard self.requestedRunning, self.session.isRunning,
-                  !self.session.isInterrupted, self.firstPairCheck == nil,
-                  self.pendingShot == nil else { return }
-            let shot = UUID()
+            guard self.canCapture, self.pendingShot == nil else { return }
+            let shot = Shot()
             self.pendingShot = shot
+            let shotID = shot.id
             self.onStatus?("時刻が近い前後のフレームを取得しています…", false)
 
             self.queue.asyncAfter(deadline: .now() + 3) { [weak self] in
-                guard let self, self.pendingShot == shot else { return }
+                guard let self, let timedOut = self.pendingShot, timedOut.id == shotID else { return }
                 self.pendingShot = nil
-                self.onStatus?("3秒以内に時刻差50 ms以下の画像ペアを取得できませんでした。もう一度お試しください。",
-                               self.session.isRunning && !self.session.isInterrupted)
+                if let skew = timedOut.closestSkewMs {
+                    let difference = String(format: "%.2f", skew)
+                    self.onStatus?("時刻差50 ms以内のペアを取得できませんでした。今回の最小差は \(difference) ms です。", self.canCapture)
+                } else {
+                    self.onStatus?(self.missingFramesMessage(front: !timedOut.front.isEmpty,
+                                                             rear: !timedOut.rear.isEmpty), self.canCapture)
+                }
             }
         }
     }
@@ -80,10 +97,10 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
         guard requestedRunning, !session.isRunning, !session.isInterrupted else { return }
         onStatus?("前後カメラを起動しています…", false)
         do {
-            if synchronizer == nil { try configureSession() }
+            if !isConfigured { try configureSession() }
             session.startRunning()
             if session.isRunning {
-                checkFirstPair()
+                checkFirstFrames()
             } else {
                 onStatus?("カメラを開始できませんでした。アプリを開き直してください。", false)
             }
@@ -92,14 +109,31 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
         }
     }
 
-    private func checkFirstPair() {
+    private var canCapture: Bool {
+        requestedRunning && session.isRunning && !session.isInterrupted && receivedFront && receivedRear
+    }
+
+    private func resetFrameState() {
+        startupCheck = nil
+        receivedFront = false
+        receivedRear = false
+        pendingShot = nil
+    }
+
+    private func checkFirstFrames() {
+        resetFrameState()
         let check = UUID()
-        firstPairCheck = check
+        startupCheck = check
         onStatus?("前後カメラの最初のフレームを待っています…", false)
         queue.asyncAfter(deadline: .now() + 3) { [weak self] in
-            guard let self, self.firstPairCheck == check else { return }
-            self.onStatus?("カメラは起動しましたが、前後のフレームを1組取得できていません。", false)
+            guard let self, self.startupCheck == check else { return }
+            self.onStatus?(self.missingFramesMessage(front: self.receivedFront, rear: self.receivedRear), false)
         }
+    }
+
+    private func missingFramesMessage(front: Bool, rear: Bool) -> String {
+        if !front && !rear { return "内・外カメラのフレームが届いていません。" }
+        return front ? "外カメラのフレームが届いていません。" : "内カメラのフレームが届いていません。"
     }
 
     private func configureSession() throws {
@@ -137,9 +171,9 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
             throw CaptureProblem(message: "このカメラ構成は端末の同時撮影上限を超えています。")
         }
 
-        let synchronizer = AVCaptureDataOutputSynchronizer(dataOutputs: [rearOutput, frontOutput])
-        synchronizer.setDelegate(self, queue: queue)
-        self.synchronizer = synchronizer
+        frontOutput.setSampleBufferDelegate(self, queue: queue)
+        rearOutput.setSampleBufferDelegate(self, queue: queue)
+        isConfigured = true
     }
 
     private func removeConnections() {
@@ -205,32 +239,55 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
         return abs(max(size.width, size.height) - 640) + abs(min(size.width, size.height) - 480)
     }
 
-    func dataOutputSynchronizer(_ synchronizer: AVCaptureDataOutputSynchronizer,
-                                didOutput collection: AVCaptureSynchronizedDataCollection) {
-        guard firstPairCheck != nil || pendingShot != nil,
-              let front = collection.synchronizedData(for: frontOutput) as? AVCaptureSynchronizedSampleBufferData,
-              let rear = collection.synchronizedData(for: rearOutput) as? AVCaptureSynchronizedSampleBufferData,
-              !front.sampleBufferWasDropped, !rear.sampleBufferWasDropped else { return }
+    func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
+                       from connection: AVCaptureConnection) {
+        guard startupCheck != nil || pendingShot != nil,
+              requestedRunning, session.isRunning, !session.isInterrupted,
+              CMSampleBufferGetImageBuffer(sampleBuffer) != nil else { return }
+        let isFront = output === frontOutput
+        guard isFront || output === rearOutput else { return }
+        let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer).seconds
+        guard time.isFinite else { return }
 
-        if firstPairCheck != nil {
-            firstPairCheck = nil
-            onStatus?("撮影できます。画像は「ファイル」の「このiPhone内」に保存されます。", true)
+        if startupCheck != nil {
+            if isFront { receivedFront = true } else { receivedRear = true }
+            if receivedFront && receivedRear {
+                startupCheck = nil
+                onStatus?("撮影できます。画像は「ファイル」の「このiPhone内」に保存されます。", true)
+            }
         }
-        guard pendingShot != nil else { return }
+        guard var shot = pendingShot else { return }
+        let frame = Frame(sampleBuffer: sampleBuffer, time: time)
+        let otherFrames = isFront ? shot.rear : shot.front
+        if let other = otherFrames.min(by: { abs($0.time - time) < abs($1.time - time) }) {
+            let skewMs = abs(time - other.time) * 1_000
+            if skewMs <= maximumSkewMs {
+                pendingShot = nil
+                saveShot(front: isFront ? frame : other, rear: isFront ? other : frame, skewMs: skewMs)
+                return
+            }
+            shot.closestSkewMs = min(shot.closestSkewMs ?? skewMs, skewMs)
+        }
 
-        let frontTime = CMSampleBufferGetPresentationTimeStamp(front.sampleBuffer).seconds
-        let rearTime = CMSampleBufferGetPresentationTimeStamp(rear.sampleBuffer).seconds
-        let skewMs = abs(frontTime - rearTime) * 1_000
-        guard skewMs.isFinite, skewMs <= maximumSkewMs else { return }
+        // Keep only two recent buffers per camera, and only while a shot is pending.
+        if isFront {
+            if shot.front.count == 2 { shot.front.removeFirst() }
+            shot.front.append(frame)
+        } else {
+            if shot.rear.count == 2 { shot.rear.removeFirst() }
+            shot.rear.append(frame)
+        }
+        pendingShot = shot
+    }
 
-        pendingShot = nil
+    private func saveShot(front: Frame, rear: Frame, skewMs: Double) {
         do {
             try savePair(front: front.sampleBuffer, rear: rear.sampleBuffer,
-                         frontTime: frontTime, rearTime: rearTime, skewMs: skewMs)
+                         frontTime: front.time, rearTime: rear.time, skewMs: skewMs)
             let skew = String(format: "%.2f", skewMs)
-            onStatus?("画像2枚を保存しました。前後のフレーム時刻差は \(skew) ms です。", true)
+            onStatus?("画像2枚を保存しました。前後のフレーム時刻差は \(skew) ms です。", canCapture)
         } catch {
-            onStatus?("保存できませんでした。\(error.localizedDescription)", true)
+            onStatus?("保存できませんでした。\(error.localizedDescription)", canCapture)
         }
     }
 
@@ -275,8 +332,7 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
 
     @objc private func interrupted(_ notification: Notification) {
         queue.async {
-            self.firstPairCheck = nil
-            self.pendingShot = nil
+            self.resetFrameState()
             if self.requestedRunning { self.onStatus?("カメラの利用が中断されました。", false) }
         }
     }
@@ -285,7 +341,7 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
         queue.async {
             guard self.requestedRunning else { return }
             if self.session.isRunning {
-                self.checkFirstPair()
+                self.checkFirstFrames()
             } else {
                 self.startIfNeeded()
             }
@@ -295,8 +351,7 @@ final class DualCapture: NSObject, AVCaptureDataOutputSynchronizerDelegate {
     @objc private func runtimeError(_ notification: Notification) {
         let message = (notification.userInfo?[AVCaptureSessionErrorKey] as? NSError)?.localizedDescription
         queue.async {
-            self.firstPairCheck = nil
-            self.pendingShot = nil
+            self.resetFrameState()
             guard self.requestedRunning else { return }
             self.onStatus?(message ?? "カメラでエラーが発生しました。", false)
         }
